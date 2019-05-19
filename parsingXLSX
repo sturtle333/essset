@@ -1,0 +1,128 @@
+const excel = require('xlsx');
+const mysql = require('mysql');
+
+var file = '계양구-효성동-가로등';
+var max = 365;
+var min = 1;
+var iscity = 6;
+var isforest = 4;
+var positive = 4;
+var land = 1;
+var important = 3;
+var black = 2;
+
+var connection = mysql.createConnection({
+    host: 'localhost',
+    user: 'root',
+    password: '413ben1725',
+    database: 'essset'
+});
+
+function parseDate(date) { //날짜 분석
+    var year = '';
+    var month = '';
+    var day = '';
+    date = date.toString();
+    for (var i = 0; i < 4; i++) {
+        year = year + date.charAt(i);
+    }
+    year = parseInt(year);
+    for (var i = 4; i < 6; i++) {
+        month = month + date.charAt(i);
+    }
+    month = parseInt(month);
+    for (var i = 6; i < 8; i++) {
+        day = day + date.charAt(i);
+    }
+    day = parseInt(day);
+    var result = [year, month, day];
+    return result;
+}
+
+connection.connect();
+
+const Alphabet = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE'];
+
+var values = [];
+
+function singleRow(aa, bb, cc, dd, ee, ff, yy) {
+    var workbook = excel.readFile(`./data/${file}.xlsx`);
+    var firstSheetName = workbook.SheetNames[0];
+    var firstSheet = workbook.Sheets[firstSheetName];
+
+    var j = yy;
+    var q = 0;
+
+    var value = [];
+
+    value[0] = firstSheet['A' + j].v;
+    value[1] = firstSheet['B' + j].v;
+    value[2] = firstSheet['C' + j].v;
+    value[3] = parseDate(firstSheet['E' + j].v)[0];
+    value[4] = parseDate(firstSheet['E' + j].v)[1];
+    value[5] = parseDate(firstSheet['E' + j].v)[2];
+    value[7] = firstSheet['G' + j].v;
+    value[8] = firstSheet['D' + j].v;
+    value[9] = firstSheet['F' + j].v;
+    value[11] = aa;
+    value[12] = bb;
+    value[13] = cc;
+    value[14] = dd;
+    value[15] = ee;
+    value[16] = ff;
+
+    for (var i = 7; i < 31; i++) {
+        value[6] = i - 6;
+        value[10] = Math.floor(firstSheet[Alphabet[i] + j].v * 1000) / 1000;
+
+        connection.query('INSERT INTO data (city, district, street, year, month, day, time, household, contract, conpow, power, isCity, isForest, positive, land, important, black) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            , [value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7], value[8], value[9], value[10], value[11], value[12], value[13], value[14], value[15], value[16]]);
+        console.log(value);
+    }
+}
+
+function multiRow(aa, bb, cc, dd, ee, ff, ymin, ymax) {
+    var workbook = excel.readFile(`./data/${file}.xlsx`);
+    var firstSheetName = workbook.SheetNames[0];
+    var firstSheet = workbook.Sheets[firstSheetName];
+
+    var q = 0;
+    var value = [];
+
+    for (var j = ymin; j <= ymax; j++) {
+        value[0] = firstSheet['A' + j].v;
+        value[1] = firstSheet['B' + j].v;
+        value[2] = firstSheet['C' + j].v;
+        value[3] = parseDate(firstSheet['E' + j].v)[0];
+        value[4] = parseDate(firstSheet['E' + j].v)[1];
+        value[5] = parseDate(firstSheet['E' + j].v)[2];
+        value[7] = firstSheet['G' + j].v;
+        value[8] = firstSheet['D' + j].v;
+        value[9] = firstSheet['F' + j].v;
+        value[11] = aa;
+        value[12] = bb;
+        value[13] = cc;
+        value[14] = dd;
+        value[15] = ee;
+        value[16] = ff;
+        for (var i = 7; i < 31; i++) {
+            value[6] = i - 6;
+            value[10] = Math.floor(firstSheet[Alphabet[i] + j].v * 1000) / 1000;
+
+            connection.query('INSERT INTO data (city, district, street, year, month, day, time, household, contract, conpow, power, isCity, isForest, positive, land, important, black) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                , [value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7], value[8], value[9], value[10], value[11], value[12], value[13], value[14], value[15], value[16]]);
+            console.log(value);
+        }
+    }
+}
+//여기서부터 제어부
+multiRow(iscity, isforest, positive, land, important, black, min, max);
+
+/*
+connection.query('SELECT * FROM data', function (err, res) {
+    if (err) {
+        console.log(err);
+    }
+    console.log(res);
+});
+*/
