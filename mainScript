@@ -1,0 +1,942 @@
+const http = require('http');
+const fs = require('fs');
+const url = require('url');
+const mysql = require('mysql');
+const qs = require('querystring');
+const cookie = require('cookie');
+const excel = require('xlsx');
+const crypto = require('crypto');
+
+const server = http.createServer(function (request, response) {
+    var title;
+    var thisURL = request.url;
+    var urll = url.parse(thisURL);
+
+    var db = mysql.createConnection({ //mysql 데이터
+        host: 'localhost',
+        user: 'root',
+        password: '413ben1725',
+        database: 'essset'
+    });
+
+    db.connect();
+
+    function definedTitle(ID) { //타이틀 정의 함수
+        title = `ESS.set - `;
+
+        if (ID == 'hometype') title = title + '가정용 ESS';
+        else if (ID == 'comtype') title = title + '통신용 ESS';
+        else if (ID == 'upstype') title = title + 'UPS용 ESS';
+        else if (ID == 'powertype') title = title + '전력용 ESS';
+        else if (ID == 'create') title = title + '개발자 옵션';
+        else if (ID == 'view') title = title + '데이터 뷰어';
+    }
+
+    //본문
+    function Template(title, essType, dataType, description, maker) {
+        if (!dataType) dataType = '';
+        if (thisURL == '/create') var createBtn = '<p><a href="/"><button>돌아가기</button></a></p>';
+        else var createBtn = '<p><a href="/access"><button>개발자 옵션</button></a></p>';
+        return `<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+        <head>
+            <meta charset="utf-8" />
+            <title>${title}</title>
+            <link href="https://fonts.googleapis.com/css?family=Noto+Sans+KR:100,300,400,500,700,900&amp;subset=korean" rel="stylesheet">
+            <style>
+                body {
+                    background-color: #ecf2f9;
+                    font-family: 'Noto Sans KR', sans-serif;
+                    font-weight: 400;
+                }
+                #top {
+                    background-color: #336699;
+                    padding: 10px 1em 10px;
+                }
+                top h1{
+                    display: inline;
+                }
+                #makers {
+                    text-align: center;
+                    font-size: 9px;
+                    color: #8cb3d9;
+                    position: relative;
+                    padding: 300px 10px 100px;
+                    background-color: #336699;
+                }
+                #ESS {
+                    text-align: right;
+                }
+                #purpose {
+                    margin: 10px;
+                }
+                .Essc {
+                    margin: 1px;
+                }
+                button {
+                    text-decoration: none;
+                    font-weight: 900;
+                    font-size: 14px;
+                    padding: 11px 15px;
+                    border: 8px;
+                    border-color: #204060;
+                    border-radius: 4px;
+                    background-color: #ebf2f9;
+                }
+                button:hover {
+                    color: white;
+                    background-color: #204060;
+                }
+
+                .dbtext {
+                    display: inline !important;
+                    position: relative;
+                }
+
+                #db {
+                    margin-left: 30px;
+                    border: 8px;
+                    border-color: red;
+                }
+
+                #adddb {
+                    display: inline !important;
+                    position: relative;    
+                }
+                
+                #viewdb {
+                    display: inline !important;
+                    position: relative;
+                    top: 10px;
+                }
+
+                .data {
+                    font-size: 6px;
+                }
+                #main {
+                    position: relative;
+                    display: inline;
+                    text-align: center;
+                }                
+                #map {
+                    position: relative;
+                    left: -40%;
+                }
+    </style>
+        </head>
+        <body>
+            <div id="top">
+            <a href="/"><img src="/logo" /></a>
+            <div id="ESS">${essType}</div>
+            </div>
+
+            <div id="purposes"><p>${dataType}</p></div>
+
+            ${createBtn}
+
+            <div id="main"><p>${description}</p></div>
+            <div id="makers"><p>${maker}</p></div>
+        </body>
+    </html>`;
+    }
+
+    //ESS버튼 추가(이름, 사용할 매개변수)
+    function addEss(name, ownQuery) {
+        if (ownQuery == undefined) {
+            ownQuery = '';
+        }
+        else {
+            ownQuery = `?id=${ownQuery}`;
+        }
+        return `<a href="${ownQuery}"><button class="Essc">${name}</button></a>`;
+    }
+
+    //용도버튼 추가(이름, 사용할 매개변수)
+    function addBtn(name, ownQuery) {
+        if (ownQuery == undefined) {
+            ownQuery = '';
+        }
+        else {
+            var urlData = url.parse(thisURL, true).query;
+            if (!urlData.p) ownQuery = `${thisURL}&p=${ownQuery}`;
+            else ownQuery = `?id=${urlData.id}&p=${ownQuery}`;
+        }
+        return `<a href="${ownQuery}"><button>${name}</button></a>`;
+    }
+
+    function parseDate(date) { //날짜 분석
+        var year = '';
+        var month = '';
+        var day = '';
+        date = date.toString();
+        for (var i = 0; i < 4; i++) {
+            year = year + date.charAt(i);
+        }
+        year = parseInt(year);
+        for (var i = 5; i < 6; i++) {
+            month = month + date.charAt(i);
+        }
+        month = parseInt(month);
+        for (var i = 7; i < 8; i++) {
+            day = day + date.charAt(i);
+        }
+        day = parseInt(day);
+        var result = [year, month, day];
+        return result;
+    }
+
+    //ESS 종류 선택 기능 인터페이스
+    var Ess = '';
+    Ess = Ess + addEss('가정용 ESS', 'hometype');
+    Ess = Ess + addEss('UPS용 ESS', 'upstype');
+    Ess = Ess + addEss('전력용 ESS', 'powertype');
+
+    var description; //본문 변수
+
+    function addDescription(des) {
+        if (des != undefined) description = description + `<p>${des}</p>`;
+    }
+
+
+    //중요 - 쿼리 분석 및 url 분석
+
+
+    if (thisURL == '/') { //메인화면
+        description = `<p>Welcome to the ESS.set!!!</p>
+            <p><img src="/mainpic" /></p>`;
+
+        title = 'Welcome to Ess.set';
+    }
+
+    else if (thisURL == 'favicon.ico') {  //에러
+        return fs.readFile('./pic/essset2_DLy_icon.ico', function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'public/images' });
+                response.end(fsres);
+            }
+        });
+    }
+
+    else if (thisURL == '/access') {
+        addDescription(`
+<h1>어드민 권한 로그인</h1>
+<form method="post" action="/auth">
+<h6>아이디</h6>
+<input type="text" name="account">
+<h6>패스워드</h6>
+<input type="password" name="password">
+<input type="submit">
+</form>`);
+    }
+
+    else if (thisURL == "/auth") {
+        var data = '';
+        request.on('data', function (res) {
+            data = data + res;
+        });
+
+        return request.on('end', function () {
+            var post = qs.parse(data);
+            if (post.account == 'esuho' && post.password == '430hope') {
+                response.writeHead(302, { Location: './create', 'Set-Cookie': ['haveAuth=true'] });
+                return response.end();
+            }
+            else {
+                response.end('failed to Login. : ( Check Your Account.');
+                return response.writeHead(302, { Location: './access' });
+            }
+        });
+    }
+
+    else if (thisURL == '/create') {  //개발자 옵션
+        var cookies = {};
+        cookies = cookie.parse(request.headers.cookie);
+        if (cookies.haveAuth != 'true') {
+            response.writeHead(200);
+            return response.end('You have not Login Log');
+        }
+
+        description = '<p>개발자 옵션에 오신것을 환영합니다!!!</p>';
+        description = description + '';
+
+        description = description + `
+<div id="db">
+<div id="adddb">
+<h6 class="dbtext">이 부분은 데이터를 추가하는 곳입니다.</h6><br>
+<form method="post" action="./adddata" class="dbtext">
+City<input type="text" name="city" class="dbtext"><br>
+District<input type="text" name="district" class="dbtext"><br>
+Street<input type="text" name="street" class="dbtext"><br>
+Year<input type="text" name="year" class="dbtext"><br>
+Month<input type="text" name="month" class="dbtext"><br>
+Day<input type="text" name="day" class="dbtext"><br>
+Time<input type="text" name="time" class="dbtext"><br>
+HouseHold<input type="text" name="household" class="dbtext"><br>
+Contract<input type="text" name="contract" class="dbtext"><br>
+Contract Power<input type="text" name="conpow" class="dbtext"><br>
+Power<input type="text" name="power" class="dbtext"><br>
+is City?<input type="text" name="isCity" class="dbtext"><br>
+is Forest?<input type="text" name="isForest" class="dbtext"><br>
+Positive<input type="text" name="positive" class="dbtext"><br>
+Land value<input type="text" name="land" class="dbtext"><br>
+Important Buildings<input type="text" name="important" class="dbtext"><br>
+BlackOut<input type="text" name="black" class="dbtext"><br>
+<input type="submit"><br>
+</form></div>
+<div><h6 class="dbtext">이 부분은 데이터 베이스를 출력하여 보는 곳입니다.</h6><br><a href="/viewdata"><button>Go</button></a><br></div>
+<div><h6 class="dbtext">이 부분은 엑셀 파일을 분석해 매크로 프로그램으로 DB를 추가하는 곳입니다.</h6><br><a href="/parse-xlsx"><button>Go</button></a></div>
+<div><h6 class="dbtext">이 부분은 엑셀 파일을 다운로드 하는 곳입니다.</h6><br><a href="/xlsxdata"><button>Go</button></a><br></div>
+</div>`;
+
+        definedTitle('create');
+    }
+
+    else if (thisURL == '/adddata') {
+        var post = '';
+
+        request.on('data', function (data) {
+            post = post + data;
+        });
+
+        return request.on('end', function () {
+            var endPost = qs.parse(post);
+
+            console.log(endPost);
+
+            if (endPost.year > 3000 || endPost.year < 1000) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check year parameter');
+            }
+            else if (endPost.month > 12 || endPost.year < 1) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check month parameter');
+            }
+            else if (endPost.day > 31 || endPost.year < 1) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check day parameter');
+            }
+            else if (endPost.time > 24 || endPost.year < 1) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check time parameter');
+            }
+            else if (endPost.isCity > 10 || endPost.isCity < 0) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check is City? parameter');
+            }
+            else if (endPost.isForest > 10 || endPost.isForest < 0) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check is Forest? parameter');
+            }
+            else if (endPost.land > 10 || endPost.land < 0) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check Land Value parameter');
+            }
+            else if (endPost.positive > 10 || endPost.positive < 0) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check positive parameter');
+            }
+            else if (endPost.city != '' && endPost.district != '' && endPost.street != '' && endPost.year != '' && endPost.month != '' && endPost.day != '' && endPost.time != '' && endPost.household != '' && endPost.contract != '' && endPost.conpow != '' && endPost.power != '' && endPost.isCity != '' && endPost.isForest != '' && endPost.positive != '' && endPost.land != '' && endPost.important != '' && endPost.black != '') {
+                db.query('INSERT INTO data (city, district, street, year, month, day, time, household, contract, conpow, power, isCity, isForest, positive, land, important, black) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                    , [endPost.city, endPost.district, endPost.street, endPost.year, endPost.month, endPost.day, endPost.time, endPost.household, endPost.contract, endPost.conpow, endPost.power, endPost.isCity, endPost.isForest, endPost.positive, endPost.land, endPost.important, endPost.black]);
+
+                response.writeHead(200);
+                response.end(`Post Success! Check your Console log!<br>${JSON.stringify(endPost)}`, 'utf8');
+            }
+            else {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should fill all of textArea');
+            }
+        });
+    }
+
+    else if (thisURL == '/viewdata') {
+        addDescription('<h1>데이터 조회 기능</h1>');
+        addDescription(`<form method="post" action="./delete">
+데이터 삭제 (id 값 입력) :
+<input type="text" name="delid">
+<input type="submit"><br>
+</form>`);
+        return db.query('SELECT * FROM data WHERE id >340000', function (err, res) {
+            if (err) {
+                response.writeHead(401);
+                return response.end('DB has Crash!');
+            }
+            else {
+                for (var i = 0; i < res.length; i++) {
+                    addDescription(`<p class="Data">${JSON.stringify(res[i])}</p>`);
+                }
+
+                definedTitle('view');
+
+                //제작자들의 정보를 적는 곳
+                var info = '<p>서울특별시 강남구 개포로 410, 수도전기공업고등학교</p><p>한국전력공사, 전력에너지 신서비스 개발경진대회</p><p>Team. 에수호.</p>';
+
+                //본문을 변수에 저장
+                var result = Template(title, Ess, purpose, description, info);
+
+                //콘솔 로그
+                console.log('Completed');
+
+                response.writeHead(200);
+                response.end(result);
+            }
+        });
+    }
+
+    else if (thisURL == '/delete') {
+        var cookies = {};
+        cookies = cookie.parse(request.headers.cookie);
+        if (cookies.haveAuth != 'true') {
+            response.writeHead(200);
+            return response.end('You have not Login Log');
+        }
+
+        var data = '';
+        request.on('data', function (res) {
+            data = data + res;
+        });
+        return request.on('end', function () {
+            var post = qs.parse(data).delid;
+            if (post < '1') {
+                response.writeHead(401);
+                return response.end('Abnormal Parameter!');
+            }
+            return db.query(`DELETE FROM data WHERE id="${post}"`, function (err, res) {
+                if (err) {
+                    response.writeHead(404);
+                    return response.end('DB has Crash!');
+                }
+                else {
+                    //콘솔 로그
+                    console.log('Completed');
+
+                    response.writeHead(200);
+                    return response.end('Delete Success');
+                }
+            });
+        });
+    }
+
+    else if (thisURL == '/parse-xlsx') {
+        var cookies = {};
+        cookies = cookie.parse(request.headers.cookie);
+        if (cookies.haveAuth != 'true') {
+            response.writeHead(200);
+            return response.end('You have not Login Log');
+        }
+
+        addDescription(`
+<h6 class="dbtext">이 부분은 매크로 설정하는 곳입니다.</h6><br>
+<form method="post" action="./parse-xlsx" class="dbtext">
+Y축 시작<input type="text" name="ymin" class="dbtext"><br>
+Y축 끝<input type="text" name="ymax" class="dbtext"><br>
+is City?<input type="text" name="isCity" class="dbtext"><br>
+is Forest?<input type="text" name="isForest" class="dbtext"><br>
+Positive<input type="text" name="positive" class="dbtext"><br>
+Land value<input type="text" name="land" class="dbtext"><br>
+Important Buildings<input type="text" name="important" class="dbtext"><br>
+BlackOut<input type="text" name="black" class="dbtext"><br>
+<input type="submit"><br>
+</form></div>`);
+
+        const Alphabet = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'AA', 'AB', 'AC', 'AD', 'AE'];
+
+        var data = '';
+        request.on('data', function (res) {
+            data = data + res;
+        });
+
+        return request('end', function () {
+            var post = qs.parse(data);
+            var values = [];
+
+            if (post.ymin > post.ymax) {
+                response.writeHead(200);
+                response.end('Failed!! :(  You should check parameter');
+            }
+
+            else if (post.sub) {
+                for (var i = 0; i < values.length; i++) {
+                    for (var j = 0; j < values[i].length; j++) {
+                        addDescription(values[i][j]);
+                    }
+                }
+            }
+
+            else if (post.ymin == post.ymax) {
+                var workbook = excel.readFile('./data/xlsxdata.xlsx');
+                var firstSheetName = workbook.SheetNames[0];
+                var firstSheet = workbook.Sheets[firstSheetName];
+
+                var j = post.ymin;
+                var q = 0;
+
+                for (var i = 7; i < 30; i++) {
+                    var value = [];
+                    value[0] = firstSheet['A' + j];
+                    value[1] = firstSheet['B' + j];
+                    value[2] = firstSheet['C' + j];
+                    value[3] = parseDate(firstSheet['E' + j].v)[0];
+                    value[4] = parseDate(firstSheet['E' + j].v)[1];
+                    value[5] = parseDate(firstSheet['E' + j].v)[2];
+                    value[6] = i = 6;
+                    value[7] = firstSheet['G' + j];
+                    value[8] = firstSheet['D' + j];
+                    value[9] = firstSheet['F' + j];
+                    value[10] = firstSheet[Alphabet[i] + j];
+                    value[11] = post.isCity;
+                    value[12] = post.isForest;
+                    value[13] = post.positive;
+                    value[14] = post.land;
+                    value[15] = post.important;
+                    value[16] = post.black;
+                    values[q] = value;
+                    q++;
+                }
+                addDescription('<form method="post" action="/parse=xlsx"><input type="text" name="sub"><input type="submit"></form>');
+                return values;
+            }
+            else {
+                var workbook = excel.readFile('./data/xlsxdata.xlsx');
+                var firstSheetName = workbook.SheetNames[0];
+                var firstSheet = workbook.Sheets[firstSheetName];
+                var q = 0;
+
+                for (var j = post.ymin; j <= post.ymax; j++) {
+                    for (var i = 7; i < 30; i++) {
+                        //db.query('INSERT INTO data (city, district, street, year, month, day, time, household, contract, conpow, power, isCity, isForest, positive, land, important, black) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+
+                        var value = [];
+                        value[0] = firstSheet['A' + j];
+                        value[1] = firstSheet['B' + j];
+                        value[2] = firstSheet['C' + j];
+                        value[3] = parseDate(firstSheet['E' + j].v)[0];
+                        value[4] = parseDate(firstSheet['E' + j].v)[1];
+                        value[5] = parseDate(firstSheet['E' + j].v)[2];
+                        value[6] = i = 6;
+                        value[7] = firstSheet['G' + j];
+                        value[8] = firstSheet['D' + j];
+                        value[9] = firstSheet['F' + j];
+                        value[10] = firstSheet[Alphabet[i] + j];
+                        value[11] = post.isCity;
+                        value[12] = post.isForest;
+                        value[13] = post.positive;
+                        value[14] = post.land;
+                        value[15] = post.important;
+                        value[16] = post.black;
+                        values[q] = value;
+                        q++;
+                    }
+                    addDescription('<form method="post" action="/parse=xlsx"><input type="text" name="sub"><input type="submit"></form>');
+                    return values;
+                }
+            }
+        });
+    }
+
+    else if (thisURL == '/logo') { //사이드페이지 : 로고 이미지
+        return fs.readFile('./pic/essset1e.png', function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'image/png' });
+                response.end(fsres);
+            }
+        });
+    }
+
+    else if (thisURL == '/mainpic') { //사이드페이지 : 로고 이미지
+        return fs.readFile('./pic/essset2.png', function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'image/png' });
+                response.end(fsres);
+            }
+        });
+    }
+    else if (urll.pathname == '/17e481c7be1c907fc00dba3c198b5348100d1d351e4b59b0159ed4312c59c72ddb4fb423eac9ad8e08c638a28384b3c32223cea7466e8089cf423cfaf1aa63b0') { //사이드페이지 : 로고 이미지
+        return fs.readFile(`./pic/17e481c7be1c907fc00dba3c198b5348100d1d351e4b59b0159ed4312c59c72ddb4fb423eac9ad8e08c638a28384b3c32223cea7466e8089cf423cfaf1aa63b0.png`, function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'image/png' });
+                response.end(fsres);
+            }
+        });
+    }
+    else if (urll.pathname == '/f3c71a7a06334fb942ff0afe3bd50cd1fa1f0fcf0debc39025c7235d010fb4e8a4116c1defa7d830c2c7a5a1ef9d587c56406c5bcd5a00aaa84fc7f9a056bf9b') { //사이드페이지 : 로고 이미지
+        var i = url.parse(thisURL, true);
+        return fs.readFile(`./pic/f3c71a7a06334fb942ff0afe3bd50cd1fa1f0fcf0debc39025c7235d010fb4e8a4116c1defa7d830c2c7a5a1ef9d587c56406c5bcd5a00aaa84fc7f9a056bf9b.png`, function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'image/png' });
+                response.end(fsres);
+            }
+        });
+    }
+    else if (urll.pathname == '/93bc49ee84792cca218e43f6b2499b466f5da831d77f435e427f7e6e3f2dbd22f2a13ec820ca834553efcfc095c2169504d866f40f3d12e1b0c45d7ebcb5df42') { //사이드페이지 : 로고 이미지
+        var i = url.parse(thisURL, true);
+        return fs.readFile(`./pic/93bc49ee84792cca218e43f6b2499b466f5da831d77f435e427f7e6e3f2dbd22f2a13ec820ca834553efcfc095c2169504d866f40f3d12e1b0c45d7ebcb5df42.png`, function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'image/png' });
+                response.end(fsres);
+            }
+        });
+    }
+    else if (urll.pathname == '/86e13e1e6a727b05f065c83656138cfc2d10471da75778641181768c470f26294c0e6223826b6ef5955d7fa1d36ed2bc6009540bd4e515c430b225570681f613') { //사이드페이지 : 로고 이미지
+        var i = url.parse(thisURL, true);
+        return fs.readFile(`./pic/86e13e1e6a727b05f065c83656138cfc2d10471da75778641181768c470f26294c0e6223826b6ef5955d7fa1d36ed2bc6009540bd4e515c430b225570681f613.png`, function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'image/png' });
+                response.end(fsres);
+            }
+        });
+    } 
+    else if (urll.pathname == '/b488f6efe3a72b568468c8e9b8e8b62c9ddd8b50dfe2b3cefb660b7dc9799bfb235b324421430d26aa02754099c85976590366b7bcd5f5ed296695b55d186be4') { //사이드페이지 : 로고 이미지
+        var i = url.parse(thisURL, true);
+        return fs.readFile(`./pic/b488f6efe3a72b568468c8e9b8e8b62c9ddd8b50dfe2b3cefb660b7dc9799bfb235b324421430d26aa02754099c85976590366b7bcd5f5ed296695b55d186be4.png`, function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'image/png' });
+                response.end(fsres);
+            }
+        });
+    } 
+    else if (thisURL == '/xlsxdata') { //사이드페이지 : 엑셀파일
+        return fs.readFile('./data/xlsxdata.xlsx', function (fserr, fsres) {
+            if (fserr) {
+                response.writeHead(404);
+            }
+            else {
+                response.writeHead(200, { 'Content-Type': 'application/vnd.ms-excel' });
+                response.end(fsres);
+            }
+        });
+    }
+
+    else { //쿼리 분석
+        var urlData = url.parse(thisURL, true).query;
+        var urlId = urlData.id;
+
+        function home(purp) {
+            var term = " WHERE ";
+            if (purp == 't') {
+                term += 'isCity >= 4 AND isCity <= 6 AND household <= 1000';
+            }
+            else if (purp == 'e') {
+                term = '';
+            }
+            else if (purp == 'l') {
+                term += 'land <= 4';
+            }
+            else if (purp == 'p') {
+                term += 'positive >= 6';
+            }
+            console.log(term);
+            return db.query(`SELECT id, city, district, street, year, month, day, time, household, contract, conpow, power FROM data${term}`, function (err, res) {
+                var temp_date;
+                var temp_id;
+                var temp_street;
+                var temp_contract;
+                var temp_plus;
+                var temp_minus;
+                var arr_prev = [];
+                var temp_result = {};
+                var temp_per;
+                var temp_prev_per = 0;
+                for (var i = 0; i < res.length; i++) {
+                    temp_minus = 0;
+                    temp_plus = 0;
+                    arr_prev = [];
+                    if (temp_street != res[i].street) {
+                        temp_street = res[i].street;
+                        console.log(temp_street);
+                        for (var j = 0; j < res.length; j++) {
+                            if (temp_street == res[j].street) {
+                                arr_prev.push(res[j]);
+                            }
+                        }
+                        for (var j = 0; j < arr_prev.length; j++) {
+                            var date = (arr_prev[j].year * 10000) + (arr_prev[j].month * 100) + arr_prev[j].day;
+                            if (temp_date != date || temp_contract != arr_prev[j].contract) {
+                                temp_date = date;
+                                temp_contract = arr_prev[j].contract;
+                                for (var h = 0; h < arr_prev.length; h++) {
+                                    if (temp_contract == arr_prev[h].contract && temp_date == (arr_prev[h].year * 10000) + (arr_prev[h].month * 100) + arr_prev[h].day) {
+                                        temp_plus += 1 * arr_prev[h].conpow;
+                                        temp_minus += 1 * arr_prev[h].power;
+                                    }
+                                }
+                            }
+                        }
+                        temp_per = Math.floor(temp_minus / temp_plus * 100000) / 1000;
+                        if (temp_prev_per < temp_per) {
+                            temp_prev_per = temp_per;
+                            temp_result.raw = res[i];
+                            temp_result.powerper = temp_per;
+                            temp_result.conpow = temp_plus;
+                            temp_result.power = temp_minus;
+                            console.log('yes, sir');
+                        }
+                        else console.log('nope. never mind');
+                    }
+                }
+                var str_hex = crypto.createHash('sha512').update(`${temp_result.raw.street}`).digest('hex');
+                var res_des = `${temp_result.raw.city}/${temp_result.raw.district}/${temp_result.raw.street}
+<p><img src="/${str_hex}" /></p>
+<p>연간 모든 계약종별 총 계약전력 : ${temp_result.conpow}</p>
+<p>연간 모든 계약종별 총 공급전력 : ${temp_result.power}</p>
+<p>총 계약전력과 총 공급전력 차 : ${temp_result.conpow - temp_result.power}</p>
+<p>총 계약전력과 공급전력의 퍼센테이지 : ${temp_result.powerper}</p>`;
+                addDescription(res_des);
+
+                var purpose = '';
+                purpose = purpose + addBtn('시범운행 최적', 't');
+                purpose = purpose + addBtn('효율 최적', 'e');
+                purpose = purpose + addBtn('시공비용 최적', 'l');
+                purpose = purpose + addBtn('수용가의 호응도 최적', 'p');
+
+                //제작자들의 정보를 적는 곳
+                var info = '<p>서울특별시 강남구 개포로 410, 수도전기공업고등학교</p><p>한국전력공사, 전력에너지 신서비스 개발경진대회</p><p>Team. 에수호.</p>';
+
+                //본문을 변수에 저장
+                var result = Template(title, Ess, purpose, description, info);
+
+                //콘솔 로그
+                console.log('Completed');
+
+                response.writeHead(200);
+                return response.end(result);
+            });
+        }
+
+        function ups(purp) {
+            var term = " WHERE important>= 5 AND black>= 5 ";
+            if (purp == 't') {
+                term += ' isCity >= 4 AND isCity <= 6 AND household <= 1000';
+            }
+            else if (purp == 'e') {
+                term = '';
+            }
+            else if (purp == 'l') {
+                term += ' land <= 4';
+            }
+            else if (purp == 'p') {
+                term += ' positive >= 6';
+            }
+            console.log(term);
+            return db.query(`SELECT id, city, district, street, year, month, day, time, household, contract, conpow, power, black, important FROM data${term}`, function (err, res) {
+                if (res == undefined) {
+                    addDescription('<h1>적합한 지역이 없습니다!!</h1>');
+
+                    var purpose = '';
+                    purpose = purpose + addBtn('시범운행 최적', 't');
+                    purpose = purpose + addBtn('효율 최적', 'e');
+                    purpose = purpose + addBtn('시공비용 최적', 'l');
+                    purpose = purpose + addBtn('수용가의 호응도 최적', 'p');
+
+                    //제작자들의 정보를 적는 곳
+                    var info = '<p>서울특별시 강남구 개포로 410, 수도전기공업고등학교</p><p>한국전력공사, 전력에너지 신서비스 개발경진대회</p><p>Team. 에수호.</p>';
+
+                    //본문을 변수에 저장
+                    var result = Template(title, Ess, purpose, description, info);
+
+                    //콘솔 로그
+                    console.log('Completed');
+
+                    response.writeHead(200);
+                    return response.end(result);
+                }
+                var temp_date;
+                var temp_id;
+                var temp_street;
+                var temp_contract;
+                var temp_plus;
+                var temp_minus;
+                var temp_black = 0;
+                var temp_important = 0;
+                var temp_ups;
+                var temp_upspower = {};
+                var arr_prev = [];
+                var temp_result = {};
+                var temp_per;
+                var temp_prev_per = 0;
+                for (var i = 0; i < res.length; i++) {
+                    temp_minus = 0;
+                    temp_plus = 0;
+                    arr_prev = [];
+                    if (temp_street != res[i].street) {
+                        temp_street = res[i].street;
+                        console.log(temp_street);
+                        for (var j = 0; j < res.length; j++) {
+                            if (temp_street == res[j].street) {
+                                arr_prev.push(res[j]);
+                            }
+                        }
+                        for (var j = 0; j < arr_prev.length; j++) {
+                            var date = (arr_prev[j].year * 10000) + (arr_prev[j].month * 100) + arr_prev[j].day;
+                            if (temp_date != date || temp_contract != arr_prev[j].contract) {
+                                temp_date = date;
+                                temp_contract = arr_prev[j].contract;
+                                for (var h = 0; h < arr_prev.length; h++) {
+                                    if (temp_contract == arr_prev[h].contract && temp_date == (arr_prev[h].year * 10000) + (arr_prev[h].month * 100) + arr_prev[h].day) {
+                                        temp_plus += 1 * arr_prev[h].conpow;
+                                        temp_minus += 1 * arr_prev[h].power;
+                                        if (temp_important <= arr_prev[h].important && temp_black <= arr_prev[h].black) {
+                                            temp_black = arr_prev[h].black;
+                                            temp_important = arr_prev[h].important;
+                                            temp_ups = arr_prev[h];
+                                            temp_upspower.conpow = temp_plus;
+                                            temp_upspower.power = temp_minus;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        temp_per = Math.floor(temp_minus / temp_plus * 100000) / 1000;
+
+                        temp_prev_per = temp_per;
+                        temp_result.raw = temp_ups;
+                        temp_result.powerper = temp_per;
+                        temp_result.conpow = temp_upspower.conpow;
+                        temp_result.power = temp_upspower.power;
+                        temp_result.important = temp_ups.important;
+                        temp_result.black = temp_ups.black;
+                        console.log('ups : ', temp_result.raw.street);
+                    }
+                }
+                var str_hex = crypto.createHash('sha512').update(`${temp_result.raw.street}`).digest('hex');
+                var res_des = `${temp_result.raw.city}/${temp_result.raw.district}/${temp_result.raw.street}
+<p><img src="/${str_hex}" /></p>
+<p>연간 모든 계약종별 총 계약전력 : ${temp_result.conpow}</p>
+<p>연간 모든 계약종별 총 공급전력 : ${temp_result.power}kW</p>
+<p>총 계약전력과 총 공급전력 차 : ${temp_result.conpow - temp_result.power}</p>
+<p>총 계약전력과 공급전력의 퍼센테이지 : ${temp_result.powerper}%</p>
+<p>해당 구역의 상시 전력 필요 건물 갯수 : ${temp_result.important}개</p>
+<p>해당 구역의 누적 정전 횟수 : ${temp_result.black}</p>`;
+                addDescription(res_des);
+
+                var purpose = '';
+                purpose = purpose + addBtn('시범운행 최적', 't');
+                purpose = purpose + addBtn('효율 최적', 'e');
+                purpose = purpose + addBtn('시공비용 최적', 'l');
+                purpose = purpose + addBtn('수용가의 호응도 최적', 'p');
+
+                //제작자들의 정보를 적는 곳
+                var info = '<p>서울특별시 강남구 개포로 410, 수도전기공업고등학교</p><p>한국전력공사, 전력에너지 신서비스 개발경진대회</p><p>Team. 에수호.</p>';
+
+                //본문을 변수에 저장
+                var result = Template(title, Ess, purpose, description, info);
+
+                //콘솔 로그
+                console.log('Completed');
+
+                response.writeHead(200);
+                return response.end(result);
+            });
+        }
+
+        function powerEss() {
+            addDescription('<h1>개발중입니다 :(( </h1>');
+        }
+
+        if (urlId && !urlData.p) {
+            description = `<h5>용도를 선택해주세요!</h5>`;
+        }
+        else if (urlId == 'hometype') {
+            if (urlData.p == 't') {
+                description = `<p>가정용 ESS 시범운행 용도의 결과</p>`;
+                return home(urlData.p);
+            }
+            else if (urlData.p == 'e') {
+                description = `<p>가정용 ESS 효율최적 용도의 결과</p>`;
+                return home(urlData.p);
+            }
+            else if (urlData.p == 'l') {
+                description = '가정용 ESS 시공비용 용도의 결과';
+                return home(urlData.p);
+            }
+            else if (urlData.p == 'p') {
+                description = '<p>가정용 ESS 수용가의 호응도 용도의 결과</p>';
+                return home(urlData.p);
+            }
+        }
+        else if (urlId == 'upstype') {
+            if (urlData.p == 't') {
+                description = 'UPS용 ESS 시범운행 용도의 결과';
+                return ups(urlData.p);
+            }
+            else if (urlData.p == 'e') {
+                description = 'UPS용 ESS 효율최적 용도의 결과';
+                return ups(urlData.p);
+            }
+            else if (urlData.p == 'l') {
+                description = 'UPS용 ESS 시공비용 용도의 결과';
+                return ups(urlData.p);
+            }
+            else if (urlData.p == 'p') {
+                description = 'UPS용 ESS 수용가의 호응도 용도의 결과';
+                return ups(urlData.p);
+            }
+
+        }
+        else if (urlId == 'powertype') {
+            if (urlData.p == 't') {
+                description = '전력용 ESS 시범운행 용도의 결과';
+                powerEss();
+            }
+            else if (urlData.p == 'e') {
+                description = '전력용 ESS 효율최적 용도의 결과';
+                powerEss();
+            }
+            else if (urlData.p == 'l') {
+                description = '전력용 ESS 시공비용 용도의 결과';
+                powerEss();
+            }
+            else if (urlData.p == 'p') {
+                description = '전력용 ESS 수용가의 호응도 용도의 결과';
+                powerEss();
+            }
+
+        }
+        else description = `Welcome!!! this Query is ${urlId} and p is ${urlData.p}`;
+
+        //목적에 따른 연산 버튼 추가 인터페이스
+        var purpose = '';
+        purpose = purpose + addBtn('시범운행 최적', 't');
+        purpose = purpose + addBtn('효율 최적', 'e');
+        purpose = purpose + addBtn('시공비용 최적', 'l');
+        purpose = purpose + addBtn('수용가의 호응도 최적', 'p');
+
+        definedTitle(urlId);
+    }
+
+    //제작자들의 정보를 적는 곳
+    var info = '<p>서울특별시 강남구 개포로 410, 수도전기공업고등학교</p><p>한국전력공사, 전력에너지 신서비스 개발경진대회</p><p>Team. 에수호.</p>';
+
+    //본문을 변수에 저장
+    var result = Template(title, Ess, purpose, description, info);
+
+    //콘솔 로그
+    console.log('Completed');
+
+    response.writeHead(200);
+    response.end(result);
+});
+server.listen(80);
